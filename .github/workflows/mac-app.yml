@@ -1,0 +1,47 @@
+name: Mac app
+
+on:
+  push:
+    branches: [mac-app]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Mac app (${{ matrix.arch }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [aarch64, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          brew install create-dmg
+          cargo install cargo-bundle
+          rustup target add ${{ matrix.arch }}-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build .app
+        run: cargo bundle -p notedeck_chrome --release --features dave,messages --target ${{ matrix.arch }}-apple-darwin
+
+      - name: Sign on this machine (no Apple account)
+        run: |
+          codesign --deep --force --sign - \
+            --entitlements entitlements.plist \
+            target/${{ matrix.arch }}-apple-darwin/release/bundle/osx/Notedeck.app
+          codesign --verify --verbose target/${{ matrix.arch }}-apple-darwin/release/bundle/osx/Notedeck.app
+
+      - name: Make DMG
+        run: |
+          mkdir -p packages
+          create-dmg --window-size 600 400 --app-drop-link 400 100 \
+            packages/Notedeck-${{ matrix.arch }}.dmg \
+            target/${{ matrix.arch }}-apple-darwin/release/bundle/osx/Notedeck.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Notedeck-${{ matrix.arch }}-dmg
+          path: packages/Notedeck-${{ matrix.arch }}.dmg
